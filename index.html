@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Chicago Volunteer Map</title>
+    <!-- Mapbox GL JS CSS -->
+    <link href='https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css' rel='stylesheet' />
+    <!-- Three.js Library -->
+    <script src='https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js'></script>
+    <!-- Mapbox GL JS Library -->
+    <script src='https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js'></script>
+    <!-- Threebox Library (using jsDelivr CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/threebox-plugin@2.2.7/dist/threebox.min.js" type="text/javascript"></script>
+
+    <style>
+        /* Basic Reset */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; width: 100%; overflow: hidden; font-family: sans-serif; }
+        #container { display: flex; height: 100vh; }
+        #sidebar { flex: 0 0 320px; /* Slightly wider */ background-color: #f4f4f4; padding: 15px; overflow-y: auto; border-right: 1px solid #ccc; }
+        #sidebar h2 { margin-bottom: 15px; color: #333; border-bottom: 1px solid #ddd; padding-bottom: 5px; }
+        #sidebar ul { list-style: none; }
+        #sidebar li { padding: 10px 5px; border-bottom: 1px solid #eee; cursor: pointer; transition: background-color 0.2s ease; }
+        #sidebar li:hover { background-color: #e0e0e0; }
+        #sidebar li strong { display: block; margin-bottom: 3px; color: #0056b3; }
+        #sidebar li span { font-size: 0.9em; color: #555; }
+        #map { flex: 1; height: 100%; }
+        .mapboxgl-popup-content { padding: 10px; font-size: 0.9em; }
+        .mapboxgl-popup-close-button { padding: 5px; }
+        /* Style for the active list item */
+        #sidebar li.active {
+            background-color: #cce5ff; /* Light blue background */
+            font-weight: bold;
+        }
+        /* Make the office entry slightly distinct */
+        #sidebar li#opportunity-0 {
+             border-top: 2px solid #adb5bd;
+             margin-top: 5px;
+        }
+        #sidebar li#opportunity-0 strong {
+            color: #003d80; /* Darker blue */
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="container">
+        <div id="sidebar">
+            <h2>Volunteer Opportunities</h2>
+            <ul id="opportunities-list">
+                <!-- List items will be added here by JavaScript -->
+            </ul>
+        </div>
+        <div id="map"></div>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        mapboxgl.accessToken = 'pk.eyJ1IjoiZWxpamFobCIsImEiOiJjbTlid2MzanQwbDgwMmtvdm9yeTEzMXE4In0.p4Vf1nFqG4Ak4kRymwLsng'; // Replace with your token!
+
+        // --- OFFICE LOCATION ---
+        const officeLocation = {
+            id: 0, // Unique ID for the office
+            name: "Our Office (167 N Green)",
+            description: "Starting point for routes.",
+            coordinates: [-87.6488, 41.8849] // Approx coords for 167 N Green St
+        };
+
+        // --- VOLUNTEER DATA ---
+        let volunteerOpportunities = [
+            // Data from previous step
+            { id: 1, name: "Nourishing Hope", description: "1716 W. Hubbard St", coordinates: [-87.6708, 41.8896] },
+            { id: 2, name: "Cradles to Crayons", description: "2500 W. Bradley Place", coordinates: [-87.6905, 41.9661] },
+            { id: 3, name: "Chicago Cares", description: "55 E. Monroe Street", coordinates: [-87.6254, 41.8808] },
+            { id: 4, name: "Greater Chicago Food Depository", description: "4100 W. Ann Lurie Place", coordinates: [-87.7277, 41.8496] },
+            { id: 5, name: "My Block My Hood My City", description: "3333 S. King Drive", coordinates: [-87.6168, 41.8348] },
+            { id: 6, name: "The Love Fridge", description: "(Various Locations)", coordinates: [-87.7074, 41.9299] },
+            { id: 7, name: "By The Hand", description: "415 N. Dearborn Street", coordinates: [-87.6295, 41.8898] },
+            { id: 8, name: "21st Century Dads", description: "1200 W. 35th Street", coordinates: [-87.6558, 41.8308] },
+            { id: 9, name: "Illinois Fatherhood Associations", description: "1200 W. 35th Street", coordinates: [-87.6558, 41.8308] },
+            { id: 10, name: "Litter Caterpillars", description: "123 N. Wacker Drive", coordinates: [-87.6373, 41.8839] },
+            { id: 11, name: "HoneyComb Project", description: "400 N. Michigan Avenue", coordinates: [-87.6248, 41.8894] },
+            { id: 12, name: "Habitat for Humanity", description: "1100 W. Cermak Rd", coordinates: [-87.6537, 41.8525] },
+            { id: 13, name: "PAWS Chicago", description: "1997 N Clybourn Ave", coordinates: [-87.6538, 41.9182] },
+            { id: 14, name: "Boys & Girls Club of Chicago", description: "1336 W. Washington Blvd", coordinates: [-87.6605, 41.8830] }
+        ];
+
+        // --- PREPEND OFFICE LOCATION ---
+        volunteerOpportunities.unshift(officeLocation);
+
+        // --- INITIALIZE MAP ---
+        const map = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/mapbox/satellite-streets-v12',
+            center: officeLocation.coordinates, // Start centered on the office
+            zoom: 12, // Zoom in a bit more initially
+            pitch: 45,
+            bearing: -17.6,
+            antialias: true
+        });
+
+        // --- Helper Function to Fetch and Draw Route ---
+        async function fetchAndDrawRoute(startCoords, endCoords) {
+            const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${startCoords[0]},${startCoords[1]};${endCoords[0]},${endCoords[1]}?steps=true&geometries=geojson&access_token=${mapboxgl.accessToken}`;
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.routes && data.routes.length > 0) {
+                    const route = data.routes[0].geometry;
+                    const routeGeoJSON = {
+                        type: 'Feature',
+                        properties: {},
+                        geometry: route
+                    };
+
+                    // Check if route source already exists
+                    if (map.getSource('route')) {
+                        map.getSource('route').setData(routeGeoJSON);
+                         console.log("Updated route data.");
+                    } else {
+                        // Add the route source and layer
+                        map.addSource('route', {
+                            type: 'geojson',
+                            data: routeGeoJSON
+                        });
+
+                        map.addLayer({
+                            id: 'route-line',
+                            type: 'line',
+                            source: 'route',
+                            layout: {
+                                'line-join': 'round',
+                                'line-cap': 'round'
+                            },
+                            paint: {
+                                'line-color': '#3887be', // Blue route line
+                                'line-width': 7,
+                                'line-opacity': 0.75
+                            }
+                        }, 'road-label'); // Insert below road labels
+                        console.log("Added route source and layer.");
+                    }
+                } else {
+                    console.warn("No route found by Directions API.");
+                    removeRoute(); // Remove old route if no new one found
+                }
+            } catch (error) {
+                console.error('Error fetching directions:', error);
+                removeRoute(); // Remove route on error
+            }
+        }
+
+        // --- Helper Function to Remove Route ---
+        function removeRoute() {
+            if (map.getLayer('route-line')) {
+                map.removeLayer('route-line');
+                 console.log("Removed route layer.");
+            }
+            if (map.getSource('route')) {
+                map.removeSource('route');
+                 console.log("Removed route source.");
+            }
+        }
+
+
+        // --- MAP LOAD EVENT ---
+        map.on('load', () => {
+            console.log("Map loaded.");
+
+            // Initialize Threebox
+            window.tb = new Threebox(
+                map,
+                map.getCanvas().getContext('webgl'),
+                { defaultLights: true }
+            );
+            console.log("Threebox initialized.");
+
+            let currentMarker = null; // Mapbox pin
+            let activeListItem = null; // Selected list item
+
+            // --- POPULATE SIDEBAR & ADD 3D MARKERS ---
+            const opportunitiesList = document.getElementById('opportunities-list');
+            opportunitiesList.innerHTML = ''; // Clear previous content
+
+            volunteerOpportunities.forEach(opportunity => {
+                // 1. Create Sidebar Item
+                const listItem = document.createElement('li');
+                listItem.innerHTML = `
+                    <strong>${opportunity.name}</strong>
+                    <span>${opportunity.description}</span>
+                `;
+                listItem.dataset.lng = opportunity.coordinates[0];
+                listItem.dataset.lat = opportunity.coordinates[1];
+                listItem.dataset.id = opportunity.id;
+                listItem.id = `opportunity-${opportunity.id}`; // Unique ID for styling/selection
+
+                // Add click event listener to the list item
+                listItem.addEventListener('click', () => {
+                    const lng = parseFloat(listItem.dataset.lng);
+                    const lat = parseFloat(listItem.dataset.lat);
+                    const id = parseInt(listItem.dataset.id);
+                    const name = opportunity.name;
+
+                    console.log(`Clicked: ${name} [${lng}, ${lat}]`);
+
+                    // Highlight active list item
+                    if (activeListItem) activeListItem.classList.remove('active');
+                    listItem.classList.add('active');
+                    activeListItem = listItem;
+
+                    // Marker Logic (Pin)
+                    if (currentMarker) currentMarker.remove();
+                    currentMarker = new mapboxgl.Marker({ color: (id === 0 ? "#003d80" : "#FF0000") }) // Different color for office pin
+                        .setLngLat([lng, lat])
+                        .addTo(map);
+
+                    // FlyTo Animation
+                    map.flyTo({
+                        center: [lng, lat],
+                        zoom: 15,
+                        pitch: 50,
+                        speed: 1.2,
+                        curve: 1.4,
+                        essential: true
+                    });
+
+                    // --- ROUTE LOGIC ---
+                    if (id === 0) { // If the office itself was clicked
+                        removeRoute(); // Remove any existing route
+                        console.log("Office clicked, removing route.");
+                    } else { // If a volunteer location was clicked
+                        console.log("Fetching route from office to:", name);
+                        fetchAndDrawRoute(officeLocation.coordinates, [lng, lat]);
+                    }
+                    // --- END ROUTE LOGIC ---
+
+                });
+
+                opportunitiesList.appendChild(listItem);
+
+                // 2. Create and Add 3D Marker using Threebox (Skip for office?)
+                // Optional: Don't add a 3D box for the office, only for volunteer spots
+                if (opportunity.id !== 0) {
+                    try {
+                        const geometry = new THREE.BoxGeometry(15, 15, 50); // Adjust size as needed
+                        const material = new THREE.MeshLambertMaterial({ color: 0xff8800 }); // Orange
+                        const cube = new THREE.Mesh(geometry, material);
+                        cube.userData = { id: opportunity.id, name: opportunity.name };
+
+                        const markerObject = tb.Object3D({ obj: cube, units: 'meters', anchor: 'bottom' })
+                                             .setCoords([...opportunity.coordinates, 0]);
+                        tb.add(markerObject);
+
+                    } catch (error) {
+                        console.error(`Error creating 3D marker for ${opportunity.name}:`, error);
+                    }
+                }
+            });
+
+            console.log("Sidebar populated and 3D markers added.");
+
+            // --- Add Map Controls ---
+            map.addControl(new mapboxgl.NavigationControl());
+            map.addControl(new mapboxgl.FullscreenControl());
+            map.addControl(new mapboxgl.GeolocateControl({
+                positionOptions: { enableHighAccuracy: true },
+                trackUserLocation: true,
+                showUserHeading: true
+            }));
+
+             // Add lighting adjustments
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(1, -1, 2);
+            tb.scene.add(directionalLight);
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+            tb.scene.add(ambientLight);
+
+        });
+
+        // --- MAP ERROR HANDLING ---
+        map.on('error', (e) => {
+            console.error("Mapbox GL error:", e.error?.message || e);
+            if (e.error?.message?.includes('Token')) {
+                 alert("Mapbox Access Token is invalid or missing. Please check the script configuration.");
+            }
+        });
+
+    </script>
+
+</body>
+</html>
